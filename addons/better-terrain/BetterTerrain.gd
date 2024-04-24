@@ -340,9 +340,9 @@ func _update_tile_vertices(tm: TileMap, coord: Vector2i, types: Dictionary, cach
 	return _weighted_selection_seeded(best, coord, false)
 
 
-func _update_tile_immediate(tm: TileMap, layer: int, coord: Vector2i, ts_meta: Dictionary, types: Dictionary, cache: Array) -> void:
+func _update_tile_immediate(tm: TileMap, layer: int, coord: Vector2i, ts_meta: Dictionary, types: Dictionary, cache: Array, specified_types: Array[int]) -> void:
 	var type = types[coord]
-	if type < TileCategory.EMPTY or type >= ts_meta.terrains.size():
+	if type < TileCategory.EMPTY or type >= ts_meta.terrains.size() or !(specified_types.is_empty() || specified_types.has(type)):
 		return
 	
 	var placement
@@ -998,7 +998,7 @@ func get_cell(tm: TileMap, layer: int, coord: Vector2i) -> int:
 ## to the [code]and_surrounding_cells[/code] parameter.
 ## [br][br]
 ## See also [method update_terrain_area] and [method update_terrain_cell].
-func update_terrain_cells(tm: TileMap, layer: int, cells: Array, and_surrounding_cells := true) -> void:
+func update_terrain_cells(tm: TileMap, layer: int, cells: Array, and_surrounding_cells := true, specified_types: Array[int] = []) -> void:
 	if !tm or !tm.tile_set or layer < -tm.get_layers_count() or layer >= tm.get_layers_count():
 		return
 	
@@ -1013,15 +1013,15 @@ func update_terrain_cells(tm: TileMap, layer: int, cells: Array, and_surrounding
 	var ts_meta := _get_terrain_meta(tm.tile_set)
 	var cache := _get_cache(tm.tile_set)
 	for c in cells:
-		_update_tile_immediate(tm, layer, c, ts_meta, types, cache)
+		_update_tile_immediate(tm, layer, c, ts_meta, types, cache, specified_types)
 
 
 ## Runs the tile solving algorithm on the [TileMap] for the given [code]layer[/code]
 ## and [code]cell[/code]. By default, the surrounding cells are also solved, but
 ## this can be adjusted by passing [code]false[/code] to the [code]and_surrounding_cells[/code]
 ## parameter. This calls through to [method update_terrain_cells].
-func update_terrain_cell(tm: TileMap, layer: int, cell: Vector2i, and_surrounding_cells := true) -> void:
-	update_terrain_cells(tm, layer, [cell], and_surrounding_cells)
+func update_terrain_cell(tm: TileMap, layer: int, cell: Vector2i, and_surrounding_cells := true, specified_types: Array[int] = []) -> void:
+	update_terrain_cells(tm, layer, [cell], and_surrounding_cells, specified_types)
 
 
 ## Runs the tile solving algorithm on the [TileMap] for the given [code]layer[/code]
@@ -1030,7 +1030,7 @@ func update_terrain_cell(tm: TileMap, layer: int, cell: Vector2i, and_surroundin
 ## parameter.
 ## [br][br]
 ## See also [method update_terrain_cells].
-func update_terrain_area(tm: TileMap, layer: int, area: Rect2i, and_surrounding_cells := true) -> void:
+func update_terrain_area(tm: TileMap, layer: int, area: Rect2i, and_surrounding_cells := true, specified_types: Array[int] = []) -> void:
 	if !tm or !tm.tile_set or layer < -tm.get_layers_count() or layer >= tm.get_layers_count():
 		return
 	
@@ -1066,9 +1066,9 @@ func update_terrain_area(tm: TileMap, layer: int, area: Rect2i, and_surrounding_
 	for y in range(area.position.y, area.end.y):
 		for x in range(area.position.x, area.end.x):
 			var coord := Vector2i(x, y)
-			_update_tile_immediate(tm, layer, coord, ts_meta, types, cache)
+			_update_tile_immediate(tm, layer, coord, ts_meta, types, cache, specified_types)
 	for c in additional_cells:
-		_update_tile_immediate(tm, layer, c, ts_meta, types, cache)
+		_update_tile_immediate(tm, layer, c, ts_meta, types, cache, specified_types)
 
 
 ## For a [TileMap], on a specific [code]layer[/code], create a changeset that will
