@@ -8,50 +8,48 @@ signal update_overlay
 const MAX_CANVAS_RENDER_TILES = 1500
 const TERRAIN_PROPERTIES_SCENE := preload("res://addons/better-terrain/editor/TerrainProperties.tscn")
 const TERRAIN_ENTRY_SCENE := preload("res://addons/better-terrain/editor/TerrainEntry.tscn")
+const MIN_ZOOM_SETTING := "editor/better_terrain/min_zoom_amount"
+const MAX_ZOOM_SETTING := "editor/better_terrain/max_zoom_amount"
+
 
 # Buttons
-@onready var draw_button := $VBoxContainer/Toolbar/Draw
-@onready var line_button := $VBoxContainer/Toolbar/Line
-@onready var rectangle_button := $VBoxContainer/Toolbar/Rectangle
-@onready var fill_button := $VBoxContainer/Toolbar/Fill
-@onready var replace_button := $VBoxContainer/Toolbar/Replace
+@onready var draw_button := $VBox/Toolbar/Draw
+@onready var line_button := $VBox/Toolbar/Line
+@onready var rectangle_button := $VBox/Toolbar/Rectangle
+@onready var fill_button := $VBox/Toolbar/Fill
+@onready var replace_button := $VBox/Toolbar/Replace
 
-@onready var paint_type := $VBoxContainer/Toolbar/PaintType
-@onready var paint_terrain := $VBoxContainer/Toolbar/PaintTerrain
-@onready var select_tiles := $VBoxContainer/Toolbar/SelectTiles
+@onready var paint_type := $VBox/Toolbar/PaintType
+@onready var paint_terrain := $VBox/Toolbar/PaintTerrain
+@onready var select_tiles := $VBox/Toolbar/SelectTiles
 
-@onready var paint_symmetry := $VBoxContainer/Toolbar/PaintSymmetry
-@onready var symmetry_options = $VBoxContainer/Toolbar/SymmetryOptions
+@onready var paint_symmetry := $VBox/Toolbar/PaintSymmetry
+@onready var symmetry_options = $VBox/Toolbar/SymmetryOptions
 
-@onready var shuffle_random := $VBoxContainer/Toolbar/ShuffleRandom
-@onready var zoom_slider := $VBoxContainer/Toolbar/Zoom
+@onready var shuffle_random := $VBox/Toolbar/ShuffleRandom
+@onready var zoom_slider_container := $VBox/Toolbar/ZoomContainer
 
-@onready var source_selector := $VBoxContainer/Toolbar/Sources
-@onready var source_selector_popup := $VBoxContainer/Toolbar/Sources/Sources
+@onready var source_selector := $VBox/Toolbar/Sources
+@onready var source_selector_popup := $VBox/Toolbar/Sources/Sources
 
-@onready var clean_button := $VBoxContainer/Toolbar/Clean
-@onready var layer_options := $VBoxContainer/Toolbar/LayerOptions
+@onready var clean_button := $VBox/Toolbar/Clean
+@onready var layer_options := $VBox/Toolbar/LayerOptions
 
-@onready var add_terrain_button := $VBoxContainer/HSplitContainer/VBoxContainer/LowerToolbar/AddTerrain
-@onready var edit_terrain_button := $VBoxContainer/HSplitContainer/VBoxContainer/LowerToolbar/EditTerrain
-@onready var pick_icon_button := $VBoxContainer/HSplitContainer/VBoxContainer/LowerToolbar/PickIcon
-@onready var move_up_button := $VBoxContainer/HSplitContainer/VBoxContainer/LowerToolbar/MoveUp
-@onready var move_down_button := $VBoxContainer/HSplitContainer/VBoxContainer/LowerToolbar/MoveDown
-@onready var remove_terrain_button := $VBoxContainer/HSplitContainer/VBoxContainer/LowerToolbar/RemoveTerrain
+@onready var edit_tool_buttons := $VBox/HSplit/Terrains/LowerToolbar/EditTools
+@onready var add_terrain_button := $VBox/HSplit/Terrains/LowerToolbar/EditTools/AddTerrain
+@onready var edit_terrain_button := $VBox/HSplit/Terrains/LowerToolbar/EditTools/EditTerrain
+@onready var pick_icon_button := $VBox/HSplit/Terrains/LowerToolbar/EditTools/PickIcon
+@onready var move_up_button := $VBox/HSplit/Terrains/LowerToolbar/EditTools/MoveUp
+@onready var move_down_button := $VBox/HSplit/Terrains/LowerToolbar/EditTools/MoveDown
+@onready var remove_terrain_button := $VBox/HSplit/Terrains/LowerToolbar/EditTools/RemoveTerrain
 
-@onready var scroll_container := $VBoxContainer/HSplitContainer/VBoxContainer/Panel/ScrollContainer
-@onready var terrain_list := $VBoxContainer/HSplitContainer/VBoxContainer/Panel/ScrollContainer/TerrainList
-@onready var tile_view := $VBoxContainer/HSplitContainer/Panel/ScrollArea/TileView
-@onready var grid_mode_button := $VBoxContainer/HSplitContainer/VBoxContainer/LowerToolbar/GridMode
+@onready var scroll_container := $VBox/HSplit/Terrains/Panel/ScrollContainer
+@onready var terrain_list := $VBox/HSplit/Terrains/Panel/ScrollContainer/TerrainList
+@onready var tile_view := $VBox/HSplit/Panel/ScrollArea/TileView
+@onready var grid_mode_button := $VBox/HSplit/Terrains/LowerToolbar/GridMode
+@onready var quick_mode_button := $VBox/HSplit/Terrains/LowerToolbar/QuickMode
 
 var selected_entry := -2
-
-@onready var terrain_icons := [
-	load("res://addons/better-terrain/icons/MatchTiles.svg"),
-	load("res://addons/better-terrain/icons/MatchVertices.svg"),
-	load("res://addons/better-terrain/icons/NonModifying.svg"),
-	load("res://addons/better-terrain/icons/Decoration.svg"),
-]
 
 var tilemap : TileMap
 var tileset : TileSet
@@ -65,6 +63,7 @@ var initial_click : Vector2i
 var prev_position : Vector2i
 var current_position : Vector2i
 var tileset_dirty := false
+var zoom_slider : HSlider
 
 enum PaintMode {
 	NO_PAINT,
@@ -101,6 +100,7 @@ func _ready() -> void:
 	move_down_button.icon = get_theme_icon("ArrowDown", "EditorIcons")
 	remove_terrain_button.icon = get_theme_icon("Remove", "EditorIcons")
 	grid_mode_button.icon = get_theme_icon("Grid", "EditorIcons")
+	quick_mode_button.icon = get_theme_icon("GuiVisibilityVisible", "EditorIcons")
 	
 	select_tiles.button_group.pressed.connect(_on_bit_button_pressed)
 	
@@ -115,10 +115,50 @@ func _ready() -> void:
 	
 	if Engine.get_version_info().hex < 0x040200:
 		paint_symmetry.visible = false
+	
+	# Zoom slider is manipulated by settings, make it at runtime
+	zoom_slider = HSlider.new()
+	zoom_slider.custom_minimum_size = Vector2(100, 0)
+	zoom_slider.value_changed.connect(tile_view._on_zoom_value_changed)
+	zoom_slider_container.add_child(zoom_slider)
+	
+	# Init settings if needed
+	if !ProjectSettings.has_setting(MIN_ZOOM_SETTING):
+		ProjectSettings.set(MIN_ZOOM_SETTING, 1.0)
+	ProjectSettings.add_property_info({
+		"name": MIN_ZOOM_SETTING,
+		"type": TYPE_FLOAT,
+		"hint": PROPERTY_HINT_RANGE,
+		"hint_string": "0.1,1.0,0.1"
+	})
+	ProjectSettings.set_initial_value(MIN_ZOOM_SETTING, 1.0)
+	ProjectSettings.set_as_basic(MIN_ZOOM_SETTING, true)
+	
+	if !ProjectSettings.has_setting(MAX_ZOOM_SETTING):
+		ProjectSettings.set(MAX_ZOOM_SETTING, 8.0)
+	ProjectSettings.add_property_info({
+		"name": MAX_ZOOM_SETTING,
+		"type": TYPE_FLOAT,
+		"hint": PROPERTY_HINT_RANGE,
+		"hint_string": "2.0,32.0,1.0"
+	})
+	ProjectSettings.set_initial_value(MAX_ZOOM_SETTING, 8.0)
+	ProjectSettings.set_as_basic(MAX_ZOOM_SETTING, true)
+	ProjectSettings.set_order(MAX_ZOOM_SETTING, ProjectSettings.get_order(MIN_ZOOM_SETTING) + 1)
+	
+	ProjectSettings.settings_changed.connect(_on_adjust_settings)
+	_on_adjust_settings()
+	zoom_slider.value = 1.0
 
 
 func _process(delta):
 	scroll_container.scroll_horizontal = 0
+
+
+func _on_adjust_settings():
+	zoom_slider.min_value = ProjectSettings.get_setting(MIN_ZOOM_SETTING, 1.0)
+	zoom_slider.max_value = ProjectSettings.get_setting(MAX_ZOOM_SETTING, 8.0)
+	zoom_slider.step = (zoom_slider.max_value - zoom_slider.min_value) / 100.0
 
 
 func _get_fill_cells(target: Vector2i) -> Array:
@@ -157,6 +197,7 @@ func tiles_changed() -> void:
 	# clear terrains
 	for c in terrain_list.get_children():
 		terrain_list.remove_child(c)
+		c.queue_free()
 	
 	# load terrains from tileset
 	var terrain_count := BetterTerrain.terrain_count(tileset)
@@ -231,6 +272,7 @@ func tiles_changed() -> void:
 	
 	tileset_dirty = false
 	_on_grid_mode_pressed()
+	_on_quick_mode_pressed()
 
 
 func queue_tiles_changed() -> void:
@@ -275,10 +317,16 @@ func _on_clean_pressed() -> void:
 		undo_manager.commit_action()
 
 
-func _on_grid_mode_pressed():
+func _on_grid_mode_pressed() -> void:
 	for c in terrain_list.get_children():
 		c.grid_mode = grid_mode_button.button_pressed
 		c.update_style()
+
+
+func _on_quick_mode_pressed() -> void:
+	edit_tool_buttons.visible = !quick_mode_button.button_pressed
+	for c in terrain_list.get_children():
+		c.visible = !quick_mode_button.button_pressed or c.terrain.type in [BetterTerrain.TerrainType.MATCH_TILES, BetterTerrain.TerrainType.MATCH_VERTICES]
 
 
 func update_tile_view_paint() -> void:
@@ -823,4 +871,3 @@ func _on_terrain_enable_id_pressed(id):
 		if source_selector_popup.is_item_checkable(i) and !source_selector_popup.is_item_checked(i):
 			disabled_sources.append(source_selector_popup.get_item_id(i))
 	tile_view.disabled_sources = disabled_sources
-
