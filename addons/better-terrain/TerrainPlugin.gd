@@ -13,15 +13,22 @@ func _enter_tree() -> void:
 		# Autoload wasn't present on plugin init, which means plugin won't have loaded correctly
 		add_autoload_singleton(AUTOLOAD_NAME, "res://addons/better-terrain/BetterTerrain.gd")
 		ProjectSettings.save()
-		OS.set_restart_on_exit(true, ["-e"])
-		get_tree().quit()
-		return
+		
+		var confirm = ConfirmationDialog.new()
+		confirm.dialog_text = "The editor needs to be restarted for Better Terrain to load correctly. Restart now? Note: Unsaved changes will be lost."
+		confirm.confirmed.connect(func():
+			OS.set_restart_on_exit(true, ["-e"])
+			get_tree().quit()
+		)
+		get_editor_interface().popup_dialog_centered(confirm)
 	
 	dock = load("res://addons/better-terrain/editor/Dock.tscn").instantiate()
 	dock.update_overlay.connect(self.update_overlays)
 	get_editor_interface().get_editor_main_screen().mouse_exited.connect(dock.canvas_mouse_exit)
 	dock.undo_manager = get_undo_redo()
 	button = add_control_to_bottom_panel(dock, "Terrain")
+	button.toggled.connect(dock.about_to_be_visible)
+	dock.force_show_terrains.connect(button.toggled.emit.bind(true))
 	button.visible = false
 
 
@@ -31,7 +38,7 @@ func _exit_tree() -> void:
 
 
 func _handles(object) -> bool:
-	return object is TileMap or object is TileSet
+	return object is TileMapLayer or object is TileSet
 
 
 func _make_visible(visible) -> void:
@@ -39,13 +46,18 @@ func _make_visible(visible) -> void:
 
 
 func _edit(object) -> void:
-	dock.tiles_about_to_change()
-	if object is TileMap:
+	var new_tileset : TileSet = null
+	
+	if object is TileMapLayer:
 		dock.tilemap = object
-		dock.tileset = object.tile_set
+		new_tileset = object.tile_set
 	if object is TileSet:
-		dock.tileset = object
-	dock.tiles_changed()
+		new_tileset = object
+	
+	if dock.tileset != new_tileset:
+		dock.tiles_about_to_change()
+		dock.tileset = new_tileset
+		dock.tiles_changed()
 
 
 func _forward_canvas_draw_over_viewport(overlay: Control) -> void:
