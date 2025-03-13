@@ -87,6 +87,12 @@ func _enter_tree() -> void:
 	_canvas_item_background = RenderingServer.canvas_item_create()
 	RenderingServer.canvas_item_set_parent(_canvas_item_background, get_canvas_item())
 	RenderingServer.canvas_item_set_draw_behind_parent(_canvas_item_background, true)
+	
+	var parent = get_parent()
+	if parent is ScrollContainer:
+		var scroller = parent.get_v_scroll_bar()
+		scroller.changed.connect(queue_redraw)
+		scroller.scrolling.connect(queue_redraw)
 
 
 func _exit_tree() -> void:
@@ -94,6 +100,12 @@ func _exit_tree() -> void:
 	for p in _canvas_item_map:
 		RenderingServer.free_rid(_canvas_item_map[p])
 	_canvas_item_map.clear()
+	
+	var parent = get_parent()
+	if parent is ScrollContainer:
+		var scroller = parent.get_v_scroll_bar()
+		scroller.changed.disconnect(queue_redraw)
+		scroller.scrolling.disconnect(queue_redraw)
 
 
 func refresh_tileset(ts: TileSet) -> void:
@@ -439,6 +451,14 @@ func _draw() -> void:
 	if !tileset:
 		return
 	
+	var start_pos = -1
+	var end_pos = 1000000000
+	var parent = get_parent()
+	if parent is ScrollContainer:
+		var vscroll = parent.get_v_scroll_bar()
+		start_pos = vscroll.value
+		end_pos = start_pos + parent.size.y
+	
 	# Clear material-based render targets
 	RenderingServer.canvas_item_clear(_canvas_item_background)
 	for p in _canvas_item_map:
@@ -462,12 +482,28 @@ func _draw() -> void:
 		if !source or !source.texture:
 			continue
 		
-		RenderingServer.canvas_item_add_texture_rect(
-			_canvas_item_background,
-			Rect2(offset, zoom_level * source.texture.get_size()),
-			checkerboard.get_rid(),
-			true
-		)
+		var tileset_size = zoom_level * source.texture.get_size()
+		if offset.y < end_pos && offset.y + tileset_size.y > start_pos:
+			RenderingServer.canvas_item_add_texture_rect(
+				_canvas_item_background,
+				Rect2(offset, tileset_size),
+				checkerboard.get_rid(),
+				true
+			)
+			
+			# Blank out unused or uninteresting tiles
+			var size := source.get_atlas_grid_size()
+			for y in size.y:
+				for x in size.x:
+					var pos := Vector2i(x, y)
+					if !is_tile_in_source(source, pos):
+						var atlas_pos := source.margins + pos * (source.separation + source.texture_region_size)
+						draw_rect(
+							Rect2(offset + zoom_level * atlas_pos, zoom_level * source.texture_region_size),
+							Color(0.0, 0.0, 0.0, 0.8),
+							true
+						)
+		
 		for t in source.get_tiles_count():
 			var coord := source.get_tile_id(t)
 			var rect := source.get_tile_texture_region(coord, 0)
@@ -480,6 +516,11 @@ func _draw() -> void:
 				else:
 					target_rect = Rect2(alt_offset + zoom_level * (a - 1) * rect.size.x * Vector2.RIGHT, zoom_level * rect.size)
 					alt_id = source.get_alternative_tile_id(coord, a)
+				
+				if target_rect.position.y > end_pos:
+					break
+				elif target_rect.end.y < start_pos:
+					continue
 				
 				var td := source.get_tile_data(coord, alt_id)
 				var drawing_current = BetterTerrain.get_tile_terrain_type(td) == paint
@@ -501,15 +542,6 @@ func _draw() -> void:
 			if alt_count > 1:
 				alt_offset.y += zoom_level * rect.size.y
 		
-		# Blank out unused or uninteresting tiles
-		var size := source.get_atlas_grid_size()
-		for y in size.y:
-			for x in size.x:
-				var pos := Vector2i(x, y)
-				if !is_tile_in_source(source, pos):
-					var atlas_pos := source.margins + pos * (source.separation + source.texture_region_size)
-					draw_rect(Rect2(offset + zoom_level * atlas_pos, zoom_level * source.texture_region_size), Color(0.0, 0.0, 0.0, 0.8), true)
-		
 		offset.y += zoom_level * source.texture.get_height()
 	
 	# Blank out unused alternate tile sections
@@ -527,7 +559,8 @@ func _draw() -> void:
 				zoom_level * alternate_size.x - occupied_width,
 				zoom_level * a[0].y
 			)
-			draw_rect(area, Color(0.0, 0.0, 0.0, 0.8), true)
+			if area.end.y > start_pos && area.position.y < end_pos:
+				draw_rect(area, Color(0.0, 0.0, 0.0, 0.8), true)
 		alt_offset.y += zoom_level * a[0].y
 	
 	if highlighted_tile_part.valid:
