@@ -78,7 +78,8 @@ enum PaintMode {
 
 enum PaintAction {
 	NO_ACTION,
-	LINE
+	LINE,
+	RECT
 }
 
 enum SourceSelectors {
@@ -249,7 +250,11 @@ func tiles_changed() -> void:
 		name += " (ID: %d)" % source_id
 		
 		source_selector_popup.add_check_item(name, source_id)
-		source_selector_popup.set_item_checked(source_selector_popup.get_item_index(source_id), true)
+		
+		source_selector_popup.set_item_checked(
+			source_selector_popup.get_item_index(source_id),
+			not tile_view.disabled_sources.has(source_id)
+		)
 	source_selector.visible = source_selector_popup.item_count > 3 # All, None and more than one source
 	
 	update_tile_view_paint()
@@ -268,6 +273,11 @@ func tiles_changed() -> void:
 func about_to_be_visible(visible: bool) -> void:
 	if !visible:
 		return
+	
+	if tileset != tilemap.tile_set:
+		tiles_about_to_change()
+		tileset = tilemap.tile_set
+		tiles_changed()
 	
 	var settings := EditorInterface.get_editor_settings()
 	layer_highlight.set_pressed_no_signal(settings.get_setting("editors/tiles_editor/highlight_selected_layer"))
@@ -560,6 +570,19 @@ func _on_terrain_updated(index):
 	entry.update()
 
 
+func canvas_tilemap_transform() -> Transform2D:
+	var transform := tilemap.get_viewport_transform() * tilemap.global_transform
+	
+	# Handle subviewport
+	var editor_viewport := EditorInterface.get_editor_viewport_2d()
+	if tilemap.get_viewport() != editor_viewport:
+		var container = tilemap.get_viewport().get_parent() as SubViewportContainer
+		if container:
+			transform = editor_viewport.global_canvas_transform * container.get_transform() * transform
+	
+	return transform
+
+
 func canvas_draw(overlay: Control) -> void:
 	if !draw_overlay:
 		return
@@ -573,9 +596,9 @@ func canvas_draw(overlay: Control) -> void:
 		return
 	
 	var tiles := []
-	var transform := tilemap.get_viewport_transform() * tilemap.global_transform
+	var transform := canvas_tilemap_transform()
 	
-	if rectangle_button.button_pressed and paint_mode != PaintMode.NO_PAINT:
+	if paint_action == PaintAction.RECT and paint_mode != PaintMode.NO_PAINT:
 		var area := Rect2i(initial_click, current_position - initial_click).abs()
 
 		# Shortcut fill for large areas
@@ -617,7 +640,7 @@ func canvas_input(event: InputEvent) -> bool:
 	
 	draw_overlay = true
 	if event is InputEventMouseMotion:
-		var tr := tilemap.get_viewport_transform() * tilemap.global_transform
+		var tr := canvas_tilemap_transform()
 		var pos := tr.affine_inverse() * Vector2(event.position)
 		var event_position := tilemap.local_to_map(pos)
 		prev_position = current_position
@@ -632,7 +655,7 @@ func canvas_input(event: InputEvent) -> bool:
 	if released:
 		terrain_undo.finish_action()
 		var type = selected_entry
-		if rectangle_button.button_pressed and paint_mode != PaintMode.NO_PAINT:
+		if paint_action == PaintAction.RECT and paint_mode != PaintMode.NO_PAINT:
 			var area := Rect2i(initial_click, current_position - initial_click).abs()
 			# Fill from initial_target to target
 			undo_manager.create_action(tr("Draw terrain rectangle"), UndoRedo.MERGE_DISABLE, tilemap)
@@ -674,17 +697,23 @@ func canvas_input(event: InputEvent) -> bool:
 	if clicked:
 		paint_mode = PaintMode.NO_PAINT
 		
-		if (event.ctrl_pressed or event.meta_pressed):
+		if (event.is_command_or_control_pressed() and !event.shift_pressed):
 			var pick = BetterTerrain.get_cell(tilemap, current_position)
 			if pick >= 0:
 				terrain_list.get_children()[pick]._on_focus_entered()
 				#_on_entry_select(pick)
 			return true
 		
-		if (draw_button.button_pressed and event.shift_pressed) or line_button.button_pressed:
+		paint_action = PaintAction.NO_ACTION
+		if rectangle_button.button_pressed:
+			paint_action = PaintAction.RECT
+		elif line_button.button_pressed:
 			paint_action = PaintAction.LINE
-		else:
-			paint_action = PaintAction.NO_ACTION
+		elif draw_button.button_pressed:
+			if event.shift_pressed:
+				paint_action = PaintAction.LINE
+				if event.is_command_or_control_pressed():
+					paint_action = PaintAction.RECT
 		
 		if event.button_index == MOUSE_BUTTON_LEFT:
 			paint_mode = PaintMode.PAINT
@@ -700,7 +729,7 @@ func canvas_input(event: InputEvent) -> bool:
 			terrain_undo.action_count = 0
 		var type = selected_entry
 		
-		if paint_action == PaintAction.LINE:
+		if paint_action == PaintAction.LINE or paint_action == PaintAction.RECT:
 			# if painting as line, execution happens on release. 
 			# prevent other painting actions from running.
 			pass
@@ -747,10 +776,10 @@ func canvas_mouse_exit() -> void:
 
 func _shortcut_input(event) -> void:
 	if event is InputEventKey:
-		if event.keycode == KEY_C and (event.ctrl_pressed or event.meta_pressed) and not event.echo:
+		if event.keycode == KEY_C and (event.is_command_or_control_pressed() and not event.echo):
 			get_viewport().set_input_as_handled()
 			tile_view.copy_selection()
-		if event.keycode == KEY_V and (event.ctrl_pressed or event.meta_pressed) and not event.echo:
+		if event.keycode == KEY_V and (event.is_command_or_control_pressed() and not event.echo):
 			get_viewport().set_input_as_handled()
 			tile_view.paste_selection()
 
